@@ -62,7 +62,13 @@ This command toggles the visibility of the agent-shell buffer manager. By defaul
 
 Use `M-x agent-shell-manager-set-annotation` in either an `agent-shell` buffer or on a row in the manager. Enter a label like `Investigating auth bug`; submit empty text to clear it.
 
-Annotations are shown in the manager table and, by default, appended to the project name in the `agent-shell` header. Buffer names are left unchanged because `agent-shell` uses them in parts of its session and event display logic.
+Annotations are shown in the manager table and, by default, beside the buffer name in the `agent-shell` mode line. Long annotations are truncated to 36 columns, with the full text available on hover. Buffer names are left unchanged because `agent-shell` uses them in parts of its session and event display logic.
+
+The display width can be changed without affecting the stored annotation:
+
+```elisp
+(setq agent-shell-manager-mode-line-annotation-width 48)
+```
 
 If you still want annotated buffer names, opt in explicitly:
 

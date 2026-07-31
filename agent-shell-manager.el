@@ -43,7 +43,6 @@
 ;;; Code:
 
 (require 'agent-shell)
-(require 'cl-lib)
 (require 'tabulated-list)
 (require 'subr-x)
 
@@ -118,12 +117,24 @@ This uses macOS notification sound support via AppleScript."
   :type 'boolean
   :group 'agent-shell-manager)
 
-(defcustom agent-shell-manager-show-annotation-in-header t
-  "When non-nil, show annotations in the `agent-shell' header.
+(define-obsolete-variable-alias
+  'agent-shell-manager-show-annotation-in-header
+  'agent-shell-manager-show-annotation-in-mode-line
+  "2026-07-21")
 
-The annotation is appended to the project name in the shell header,
-leaving the actual buffer name unchanged."
+(defcustom agent-shell-manager-show-annotation-in-mode-line t
+  "When non-nil, show annotations beside the `agent-shell' buffer name.
+
+The annotation is a separate mode-line segment, leaving the actual
+buffer name unchanged."
   :type 'boolean
+  :group 'agent-shell-manager)
+
+(defcustom agent-shell-manager-mode-line-annotation-width 36
+  "Maximum display width of an annotation in the mode line.
+
+The full annotation remains available as hover text."
+  :type 'integer
   :group 'agent-shell-manager)
 
 (defcustom agent-shell-manager-rename-buffers-with-annotation nil
@@ -135,7 +146,7 @@ Clearing the annotation restores the original buffer name.
 
 This is disabled by default because `agent-shell' uses buffer names in
 parts of its event display and session plumbing.  Prefer
-`agent-shell-manager-show-annotation-in-header' unless you specifically
+`agent-shell-manager-show-annotation-in-mode-line' unless you specifically
 need renamed buffers."
   :type 'boolean
   :group 'agent-shell-manager)
@@ -143,6 +154,11 @@ need renamed buffers."
 (defface agent-shell-manager-done
   '((t (:foreground "#16524F" :weight bold)))
   "Face for agents that completed since last visit."
+  :group 'agent-shell-manager)
+
+(defface agent-shell-manager-mode-line-annotation
+  '((t (:inherit mode-line-emphasis)))
+  "Face used for annotations beside the mode-line buffer name."
   :group 'agent-shell-manager)
 
 (defconst agent-shell-manager--column-specs
@@ -562,37 +578,59 @@ CURRENT-STATUS should be the raw status string."
         (unless (string-empty-p annotation)
           annotation)))))
 
-(defun agent-shell-manager--project-name-with-annotation (project-name annotation)
-  "Return PROJECT-NAME with ANNOTATION appended for header display."
-  (if (and (stringp project-name)
-           annotation
-           (not (string-empty-p annotation)))
-      (format "%s (%s)" project-name annotation)
-    project-name))
+(defconst agent-shell-manager--mode-line-annotation-segment
+  '(:eval (agent-shell-manager--mode-line-annotation))
+  "Mode-line construct used to display the current annotation.")
 
-(defun agent-shell-manager--make-header-with-annotation (original state &rest args)
-  "Call ORIGINAL header renderer with the current annotation in project name."
-  (let ((annotation (and agent-shell-manager-show-annotation-in-header
-                         (derived-mode-p 'agent-shell-mode)
-                         (agent-shell-manager--annotation-string
-                          (current-buffer)))))
-    (if (and annotation (fboundp 'agent-shell--project-name))
-        (let ((project-name-function (symbol-function 'agent-shell--project-name)))
-          (cl-letf (((symbol-function 'agent-shell--project-name)
-                     (lambda (&rest project-name-args)
-                       (agent-shell-manager--project-name-with-annotation
-                        (apply project-name-function project-name-args)
-                        annotation))))
-            (apply original state args)))
-      (apply original state args))))
+(defun agent-shell-manager--mode-line-annotation ()
+  "Return the current buffer's annotation for mode-line display."
+  (when (and agent-shell-manager-show-annotation-in-mode-line
+             (derived-mode-p 'agent-shell-mode))
+    (when-let* ((annotation (agent-shell-manager--annotation-string
+                             (current-buffer))))
+      (let ((display-annotation
+             (if (> (string-width annotation)
+                    agent-shell-manager-mode-line-annotation-width)
+                 (truncate-string-to-width
+                  annotation
+                  agent-shell-manager-mode-line-annotation-width
+                  nil nil "...")
+               annotation)))
+        (propertize (format " [%s]" display-annotation)
+                    'face 'agent-shell-manager-mode-line-annotation
+                    'help-echo annotation)))))
 
-(defun agent-shell-manager--update-agent-header (buffer)
-  "Refresh `agent-shell' header for BUFFER when possible."
+(defun agent-shell-manager--setup-annotation-mode-line (&optional buffer)
+  "Add the annotation segment beside the buffer name in BUFFER.
+
+When BUFFER is nil, use the current buffer."
+  (let ((target-buffer (or buffer (current-buffer))))
+    (when (buffer-live-p target-buffer)
+      (with-current-buffer target-buffer
+        (when (derived-mode-p 'agent-shell-mode)
+          (let ((identification
+                 (if (listp mode-line-buffer-identification)
+                     mode-line-buffer-identification
+                   (list mode-line-buffer-identification))))
+            (unless (member agent-shell-manager--mode-line-annotation-segment
+                            identification)
+              (setq-local mode-line-buffer-identification
+                          (append identification
+                                  (list agent-shell-manager--mode-line-annotation-segment))))))))))
+
+(defun agent-shell-manager--setup-annotation-mode-lines ()
+  "Add annotation mode-line segments to all live `agent-shell' buffers."
+  (let* ((buffers (agent-shell-buffers))
+         (buffers (if (listp buffers) buffers (list buffers))))
+    (mapc #'agent-shell-manager--setup-annotation-mode-line
+          (seq-filter #'buffer-live-p buffers))))
+
+(defun agent-shell-manager--update-agent-display (buffer)
+  "Refresh the mode line for BUFFER when possible."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
-      (when (and (derived-mode-p 'agent-shell-mode)
-                 (fboundp 'agent-shell--update-header-and-mode-line))
-        (agent-shell--update-header-and-mode-line)))))
+      (when (derived-mode-p 'agent-shell-mode)
+        (force-mode-line-update t)))))
 
 (defun agent-shell-manager--strip-annotation-prefix (name annotation)
   "Return NAME without ANNOTATION prefix when it has one."
@@ -967,7 +1005,7 @@ Submit empty input to clear the current annotation."
         (when (timerp agent-shell-manager--pending-buffer-rename-timer)
           (cancel-timer agent-shell-manager--pending-buffer-rename-timer)
           (setq-local agent-shell-manager--pending-buffer-rename-timer nil))))
-    (agent-shell-manager--update-agent-header buffer)
+    (agent-shell-manager--update-agent-display buffer)
     (agent-shell-manager-refresh)
     (message "%s annotation for %s%s"
              (if (string= annotation "") "Cleared" "Updated")
@@ -1549,17 +1587,20 @@ by `delete-other-windows' (C-x 1)."
       (agent-shell-manager--show-buffer))))
 
 (add-hook 'agent-shell-mode-hook #'agent-shell-manager--ensure-command-tracker)
+(add-hook 'agent-shell-mode-hook #'agent-shell-manager--setup-annotation-mode-line)
 (agent-shell-manager--ensure-command-trackers)
+(agent-shell-manager--setup-annotation-mode-lines)
+
+;; Remove the previous header integration when upgrading in a live Emacs.
+(when (advice-member-p 'agent-shell-manager--make-header-with-annotation
+                       'agent-shell--make-header)
+  (advice-remove 'agent-shell--make-header
+                 'agent-shell-manager--make-header-with-annotation))
 
 (unless (advice-member-p #'agent-shell-manager--refresh-visible-manager
                          'agent-shell--update-header-and-mode-line)
   (advice-add 'agent-shell--update-header-and-mode-line
               :after #'agent-shell-manager--refresh-visible-manager))
-
-(unless (advice-member-p #'agent-shell-manager--make-header-with-annotation
-                         'agent-shell--make-header)
-  (advice-add 'agent-shell--make-header
-              :around #'agent-shell-manager--make-header-with-annotation))
 
 (unless (advice-member-p #'agent-shell-manager--after-agent-shell-notification
                          'agent-shell--on-notification)
