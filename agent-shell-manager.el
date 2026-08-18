@@ -426,11 +426,6 @@ Returns one of: waiting, ready, working, killed, or unknown."
        (buffer-live-p agent-shell-manager--global-buffer)
        (get-buffer-window agent-shell-manager--global-buffer t)))
 
-(defun agent-shell-manager--buffer-visible-p (buffer)
-  "Return non-nil when BUFFER is visible in any window."
-  (and (buffer-live-p buffer)
-       (get-buffer-window buffer t)))
-
 (defun agent-shell-manager--buffer-selected-p (buffer)
   "Return non-nil when BUFFER is selected in the current frame."
   (and (buffer-live-p buffer)
@@ -494,8 +489,7 @@ If focus state can't be determined, returns non-nil."
   "Return non-nil when BUFFER ready notifications should be emitted now."
   (and agent-shell-manager-ready-status-notifications
        (or (not (agent-shell-manager--emacs-active-p))
-           (and (not (agent-shell-manager--manager-visible-p))
-                (not (agent-shell-manager--buffer-visible-p buffer))))))
+           (not (agent-shell-manager--buffer-selected-p buffer)))))
 
 (defun agent-shell-manager--notification-label (buffer)
   "Return notification label for BUFFER.

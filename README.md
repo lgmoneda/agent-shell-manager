@@ -118,7 +118,10 @@ When enabled, a macOS notification is sent when an agent transitions from **Work
 
 Notifications are emitted only when either:
 - Emacs is not the active app, or
-- Emacs is active and neither the manager window nor the agent buffer is currently visible.
+- Emacs is active and the completed agent buffer is not currently selected.
+
+Keeping the manager visible does not suppress notifications. An unseen completion is
+shown as **Done** until you visit its agent buffer, then returns to **Ready**.
 
 ```elisp
 (setq agent-shell-manager-ready-status-notifications t)
