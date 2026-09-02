@@ -576,6 +576,10 @@ CURRENT-STATUS should be the raw status string."
   '(:eval (agent-shell-manager--mode-line-annotation))
   "Mode-line construct used to display the current annotation.")
 
+(defconst agent-shell-manager--mood-line-annotation-segment
+  '(agent-shell-manager--mode-line-annotation)
+  "Mood-line construct used to display the current annotation.")
+
 (defun agent-shell-manager--mode-line-annotation ()
   "Return the current buffer's annotation for mode-line display."
   (when (and agent-shell-manager-show-annotation-in-mode-line
@@ -594,6 +598,29 @@ CURRENT-STATUS should be the raw status string."
                     'face 'agent-shell-manager-mode-line-annotation
                     'help-echo annotation)))))
 
+(defun agent-shell-manager--mood-line-format-with-annotation (format)
+  "Return a copy of mood-line FORMAT containing the annotation segment."
+  (let* ((updated-format (copy-tree format))
+         (left-segments (car-safe updated-format))
+         (buffer-name-tail
+          (member '(mood-line-segment-buffer-name) left-segments)))
+    (when (and buffer-name-tail
+               (not (member agent-shell-manager--mood-line-annotation-segment
+                            left-segments)))
+      (setcdr buffer-name-tail
+              (cons agent-shell-manager--mood-line-annotation-segment
+                    (cdr buffer-name-tail))))
+    updated-format))
+
+(defun agent-shell-manager--setup-mood-line-annotation ()
+  "Add the annotation segment beside the mood-line buffer name locally."
+  (when (boundp 'mood-line-format)
+    (let ((format (symbol-value 'mood-line-format)))
+      (when (listp format)
+        (set (make-local-variable 'mood-line-format)
+             (agent-shell-manager--mood-line-format-with-annotation
+              format))))))
+
 (defun agent-shell-manager--setup-annotation-mode-line (&optional buffer)
   "Add the annotation segment beside the buffer name in BUFFER.
 
@@ -610,7 +637,8 @@ When BUFFER is nil, use the current buffer."
                             identification)
               (setq-local mode-line-buffer-identification
                           (append identification
-                                  (list agent-shell-manager--mode-line-annotation-segment))))))))))
+                                  (list agent-shell-manager--mode-line-annotation-segment)))))
+          (agent-shell-manager--setup-mood-line-annotation))))))
 
 (defun agent-shell-manager--setup-annotation-mode-lines ()
   "Add annotation mode-line segments to all live `agent-shell' buffers."
@@ -1584,6 +1612,9 @@ by `delete-other-windows' (C-x 1)."
 (add-hook 'agent-shell-mode-hook #'agent-shell-manager--setup-annotation-mode-line)
 (agent-shell-manager--ensure-command-trackers)
 (agent-shell-manager--setup-annotation-mode-lines)
+
+(with-eval-after-load 'mood-line
+  (agent-shell-manager--setup-annotation-mode-lines))
 
 ;; Remove the previous header integration when upgrading in a live Emacs.
 (when (advice-member-p 'agent-shell-manager--make-header-with-annotation
